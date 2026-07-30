@@ -1,0 +1,49 @@
+# Environment
+.env
+*.env.local
+
+# GCP credentials (never commit private keys)
+credentials/*
+!credentials/.gitkeep
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+
+# Data (raw downloads are large; keep scripts)
+data/raw/
+!data/raw/.gitkeep
+data/processed/agent_core.db
+data/processed/*.db
+
+# Large raw ML dumps (prefer committed .joblib demos under models/)
+services/analytics-pipeline/models/*.pkl
+services/recommender/models/*.pkl
+# Keep .joblib demo artifacts tracked so judges can run without re-training
+
+# Node
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Docker volumes
+postgres_data/
+
+# Kaggle
+.kaggle/
+
+# Chroma / vector DB
+services/visual-search/chroma_db/
+services/visual-search/models/chroma_visual/

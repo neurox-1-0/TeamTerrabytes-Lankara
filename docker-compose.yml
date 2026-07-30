@@ -1,0 +1,122 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: lankara
+      POSTGRES_PASSWORD: lankara
+      POSTGRES_DB: lankara
+    ports:
+      # Host 5433 — avoids conflict with other local Postgres on 5432
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lankara -d lankara"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  seed:
+    image: python:3.12-slim
+    working_dir: /workspace
+    volumes:
+      - ./:/workspace
+    environment:
+      DATABASE_URL: postgresql://lankara:lankara@postgres:5432/lankara
+      OPENBLAS_NUM_THREADS: "1"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: >
+      bash -c "pip install -q pandas numpy scikit-learn scipy joblib lightgbm
+      mlxtend pyarrow psycopg2-binary implicit pillow threadpoolctl &&
+      python scripts/bootstrap.py || echo '[seed] completed with warnings'"
+    restart: "no"
+
+  event-store:
+    build: ./services/event-store
+    ports:
+      - "8001:8001"
+    environment:
+      DATABASE_URL: postgresql://lankara:lankara@postgres:5432/lankara
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  analytics-pipeline:
+    build: ./services/analytics-pipeline
+    ports:
+      - "8002:8002"
+    environment:
+      EVENT_STORE_URL: http://event-store:8001
+    volumes:
+      - ./services/analytics-pipeline/models:/app/models
+      - ./data/processed:/app/data/processed:ro
+    depends_on:
+      - event-store
+
+  recommender:
+    build: ./services/recommender
+    ports:
+      - "8003:8003"
+    volumes:
+      - ./services/recommender/models:/app/models
+    depends_on:
+      - event-store
+
+  visual-search:
+    build: ./services/visual-search
+    ports:
+      - "8004:8004"
+    environment:
+      VISUAL_USE_CLIP: "1"
+    volumes:
+      - ./data/processed:/app/data/processed:ro
+      - ./data/raw:/app/data/raw:ro
+      - ./services/visual-search/models:/app/models
+    depends_on:
+      - event-store
+
+  stt-translation:
+    build: ./services/stt-translation
+    ports:
+      - "8005:8005"
+    env_file: .env
+    environment:
+      WHISPER_MODEL: tiny
+      NLLB_MODEL: facebook/nllb-200-distilled-600M
+
+  agent-core:
+    build: ./agent-core
+    ports:
+      - "8000:8000"
+    env_file: .env
+    environment:
+      EVENT_STORE_URL: http://event-store:8001
+      ANALYTICS_URL: http://analytics-pipeline:8002
+      RECOMMENDER_URL: http://recommender:8003
+      VISUAL_SEARCH_URL: http://visual-search:8004
+      STT_TRANSLATION_URL: http://stt-translation:8005
+      GOOGLE_APPLICATION_CREDENTIALS: /credentials/gcp-service-account.json
+      DATABASE_URL: postgresql://lankara:lankara@postgres:5432/lankara
+    volumes:
+      - ./credentials:/credentials:ro
+      - ./data/processed:/app/data/processed
+    depends_on:
+      - analytics-pipeline
+      - recommender
+      - visual-search
+      - stt-translation
+
+  frontend:
+    build: ./frontend
+    ports:
+      # Host 3010 — 3000/3005 often taken by local Next/dev servers
+      - "3010:3000"
+    environment:
+      NEXT_PUBLIC_AGENT_URL: http://localhost:8000
+    depends_on:
+      - agent-core
+
+volumes:
+  postgres_data:
